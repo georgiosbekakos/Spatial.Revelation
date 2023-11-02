@@ -1,0 +1,63 @@
+import clr
+import csv
+import os
+from System.Collections.Generic import List
+from math import sqrt
+
+clr.AddReference('RevitAPI')
+clr.AddReference('RevitAPIUI')
+from Autodesk.Revit.DB import *
+from Autodesk.Revit.UI import *
+
+uidoc = __revit__.ActiveUIDocument
+doc = __revit__.ActiveUIDocument.Document
+
+# The directory to save the .csv files
+directory = r"C:\Users\Georgios Bekakos\Desktop"
+
+# Floor plans to include
+floor_plans_to_include = ["LEVEL 0" + str(i) for i in range(1, 7)] + ["ROOF", "PENTHOUSE"]
+
+# Collect all floor plans in the model
+collector = FilteredElementCollector(doc).OfClass(ViewPlan).ToElements()
+
+for view in collector:
+    if view.ViewType == ViewType.FloorPlan and view.Name in floor_plans_to_include:
+        # Get all rooms in the current floor plan
+        room_filter = ElementCategoryFilter(BuiltInCategory.OST_Rooms)
+        room_collector = FilteredElementCollector(doc, view.Id).WherePasses(room_filter).ToElements()
+        
+        polygons = []
+        
+        for room in room_collector:
+            if room.Area > 0:  # Ignore rooms without an area
+                # Get the boundary of the room
+                opt = SpatialElementBoundaryOptions()
+                boundary = room.GetBoundarySegments(opt)
+                
+                # Iterate over boundary segments and convert them to a polygon
+                room_polygons = []
+                total_x = 0
+                total_y = 0
+                point_count = 0
+                for loop in boundary:
+                    loop_polygon = [(line.GetCurve().GetEndPoint(0).X, line.GetCurve().GetEndPoint(0).Y) for line in loop]
+                    room_polygons.append(loop_polygon)
+                    for point in loop_polygon:
+                        total_x += point[0]
+                        total_y += point[1]
+                        point_count += 1
+                
+                # Calculate centroid
+                centroid_x = total_x / point_count
+                centroid_y = total_y / point_count
+                
+                # Add the room name, UniqueId, the polygons, and centroid to the list
+                polygons.append((room.UniqueId, room.Name, room_polygons, (centroid_x, centroid_y)))
+                
+        # Write polygons and centroid to a .csv file
+        with open(os.path.join(directory, f'{view.Name}_floor_plan.csv'), 'w', newline='') as file:
+            writer = csv.writer(file)
+            for room_id, room_name, room_polygons, centroid in polygons:
+                for polygon in room_polygons:
+                    writer.writerow([room_id, room_name, centroid[0], centroid[1]] + polygon)

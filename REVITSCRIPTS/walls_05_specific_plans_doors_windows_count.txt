@@ -1,0 +1,100 @@
+import clr
+import csv
+import os
+from collections import Counter
+from System.Collections.Generic import List
+
+# Import RevitAPI
+clr.AddReference('RevitAPI')
+clr.AddReference('RevitAPIUI')
+from Autodesk.Revit.DB import *
+
+# Import Revit Document
+doc = __revit__.ActiveUIDocument.Document
+
+# The directory to save the .csv files
+directory = r"C:\Users\Georgios Bekakos\Desktop"  # replace with your directory
+
+# Floor plans you are interested in
+floor_plans = ["L1", "L2", "L3", "L4", "L5"]
+
+# Collect all floorplans in the model
+collector_views = FilteredElementCollector(doc).OfClass(ViewPlan).ToElements()
+
+# Collect all doors and windows in the project
+doors_and_windows = FilteredElementCollector(doc).OfClass(FamilyInstance).ToElements()
+
+# Prepare a dictionary to store door and window counts per wall
+wall_doors_windows = {}
+
+# Iterate over all doors and windows
+for dw in doors_and_windows:
+    # If the host is a wall
+    if isinstance(dw.Host, Wall):
+        # Initialize the wall in the dictionary if it's not already there
+        if dw.Host.Id not in wall_doors_windows:
+            wall_doors_windows[dw.Host.Id] = {"doors": 0, "windows": 0}
+
+        # Increment the appropriate count based on whether the family instance is a door or a window
+        if dw.Category.Name == 'Doors':
+            wall_doors_windows[dw.Host.Id]["doors"] += 1
+        elif dw.Category.Name == 'Windows':
+            wall_doors_windows[dw.Host.Id]["windows"] += 1
+
+# Iterate over each floorplan
+for view in collector_views:
+    # Skip if this view is not in the list of floor plans
+    if view.Name not in floor_plans:
+        continue
+
+    # Prepare a list to store all wall data for this floorplan
+    walls_data = []
+
+    # Collect all walls in this floorplan
+    try:
+        collector = FilteredElementCollector(doc, view.Id).OfClass(Wall).ToElements()
+    except Exception as e:
+        print(f"Skipping {view.Name} due to: {str(e)}")
+        continue
+
+    # Iterate over all walls in the floorplan
+    for wall in collector:
+        # Get the necessary parameters
+        wall_type = wall.WallType.Name
+
+        base_constraint_element = doc.GetElement(wall.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT).AsElementId())
+        base_constraint = base_constraint_element.Name if base_constraint_element is not None else "None"
+
+        top_constraint_element = doc.GetElement(wall.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE).AsElementId())
+        top_constraint = top_constraint_element.Name if top_constraint_element is not None else "None"
+
+        # Get the door and window counts for this wall
+        doors = wall_doors_windows.get(wall.Id, {}).get("doors", 0)
+        windows = wall_doors_windows.get(wall.Id, {}).get("windows", 0)
+
+        # Get the wall footprint
+        options = Options()
+        options.ComputeReferences = True
+        options.DetailLevel = ViewDetailLevel.Fine
+        geometryElement = wall.get_Geometry(options)
+        for geometryObject in geometryElement:
+            if isinstance(geometryObject, Solid):
+                solid = geometryObject
+                if solid.Faces.Size > 0:
+                    for face in solid.Faces:
+                        if isinstance(face, PlanarFace):
+                            footprint = face.EdgeLoops
+                            for edgeArray in footprint:
+                                footprint_coords = [(edge.AsCurve().GetEndPoint(0).X, edge.AsCurve().GetEndPoint(0).Y) for edge in edgeArray]
+                                # Add the wall parameters, footprint, and door and window counts to the list
+                                walls_data.append([wall_type, base_constraint, top_constraint, footprint_coords, doors, windows])
+
+    # Write walls data to a .csv file, one for each floorplan
+    csv_file_path = os.path.join(directory, f'{view.Name}_walls_footprint.csv')
+    with open(csv_file_path, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        # Write headers
+        writer.writerow(["WallType", "BaseConstraint", "TopConstraint", "Footprint", "Doors", "Windows"])
+        # Write wall data
+        for wall_data in walls_data:
+            writer.writerow(wall_data)

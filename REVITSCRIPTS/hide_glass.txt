@@ -1,0 +1,54 @@
+import clr
+import System
+from System.Collections.Generic import List
+
+# Import Revit API
+clr.AddReference('RevitAPI')
+from Autodesk.Revit.DB import *
+
+# Import Revit API UI
+clr.AddReference('RevitAPIUI')
+from Autodesk.Revit.UI import *
+
+# Get the current document and UI document
+doc = __revit__.ActiveUIDocument.Document
+uidoc = __revit__.ActiveUIDocument
+
+# Initialize list to hold elements to hide
+element_ids_to_hide = List[ElementId]()
+
+# Collect all elements in the document
+collector = FilteredElementCollector(doc).WhereElementIsNotElementType()
+
+# Loop through collected elements and add those meeting the criteria to the list
+for element in collector:
+    try:
+        # Retrieve Material IDs for the element
+        material_ids = element.GetMaterialIds(False)
+        
+        # Check if any material matches 'Glass'
+        for material_id in material_ids:
+            material = doc.GetElement(material_id)
+            if material.Name.upper() == 'GLASS':
+                element_ids_to_hide.Add(element.Id)
+                break
+                
+    except Exception as e:
+        print(f"Skipped element due to error: {e}")
+
+# Debugging prints
+print(f"Number of elements to hide: {element_ids_to_hide.Count}")
+
+# Start a new transaction
+with Transaction(doc, 'Hide Elements by Material') as t:
+    t.Start()
+
+    try:
+        # Hide elements in the view
+        if element_ids_to_hide.Count > 0:
+            uidoc.ActiveView.HideElements(element_ids_to_hide)
+        
+        t.Commit()
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        t.RollBack()

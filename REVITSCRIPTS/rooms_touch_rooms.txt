@@ -1,0 +1,95 @@
+import clr
+import csv
+import os
+
+clr.AddReference('RevitAPI')
+clr.AddReference('RevitAPIUI')
+from Autodesk.Revit.DB import *
+from Autodesk.Revit.UI import *
+
+uidoc = __revit__.ActiveUIDocument
+doc = uidoc.Document
+
+# Directory to save the .csv file
+directory = r"C:\Users\Georgios Bekakos\Desktop"
+csv_file_path = os.path.join(directory, 'touching_rooms_edges.csv')
+
+# Initialize SpatialElementBoundaryOptions
+opt = SpatialElementBoundaryOptions()
+
+# Function to get boundary polygon and adjacent elements of a room
+def get_room_boundary_and_adjacent_elements(room, opt):
+    boundary = room.GetBoundarySegments(opt)
+    if not boundary:
+        return None, []
+    
+    polygon = [(seg.GetCurve().GetEndPoint(0).X, seg.GetCurve().GetEndPoint(0).Y) for seg in boundary[0]]
+    adjacent_elements = [doc.GetElement(seg.ElementId) for seg in boundary[0] if seg.ElementId]
+    
+    return polygon, adjacent_elements
+
+# Create CSV file
+with open(csv_file_path, 'w', newline='') as csvfile:
+    csvwriter = csv.writer(csvfile)
+    # Include 'Level' in the header
+    csvwriter.writerow(['Room Number', 'Room Name', 'Room Unique ID', 'Level', 'Touching Rooms'])
+
+    # Get all rooms in the project
+    room_filter = ElementCategoryFilter(BuiltInCategory.OST_Rooms)
+    rooms = FilteredElementCollector(doc).WherePasses(room_filter).ToElements()
+
+    # Create an empty dictionary to store room touching information
+    touching_dict = {}
+    
+    id_to_number = {}
+    
+    # Go through each room to find adjacent rooms
+    for room in rooms:
+        room_id = room.Id.IntegerValue
+        room_number = room.Number
+        id_to_number[room_id] = room_number
+        room_polygon, adjacent_walls = get_room_boundary_and_adjacent_elements(room, opt)
+        
+        # Extract the Level information for each room
+        level = doc.GetElement(room.LevelId)
+        level_name = level.Name if level else "Unknown"
+        
+        if not room_polygon:
+            continue
+        
+        for adjacent_wall in adjacent_walls:
+            if adjacent_wall is None:
+                continue
+            
+            has_door = False
+            for insert_id in adjacent_wall.GetDependentElements(ElementClassFilter(FamilyInstance)):
+                insert = doc.GetElement(insert_id)
+                if insert and insert.Category and insert.Category.Name == 'Doors':
+                    has_door = True
+                    break
+            
+            if has_door:
+                for other_room in rooms:
+                    other_room_id = other_room.Id.IntegerValue
+                    if room_id == other_room_id:
+                        continue
+                    
+                    _, other_adjacent_walls = get_room_boundary_and_adjacent_elements(other_room, opt)
+                    
+                    if adjacent_wall.Id in [w.Id for w in other_adjacent_walls if w]:
+                        if room_id not in touching_dict:
+                            touching_dict[room_id] = set()
+                        
+                        touching_dict[room_id].add(other_room_id)
+                        
+    # Write the dictionary to the CSV file
+    for room_int_id, touching_rooms in touching_dict.items():
+        room = doc.GetElement(ElementId(room_int_id))
+        touching_room_numbers = [id_to_number[tr] for tr in touching_rooms]
+        if room:
+            level = doc.GetElement(room.LevelId)
+            level_name = level.Name if level else "Unknown"
+            # Include 'level_name' in the row
+            csvwriter.writerow([room.Number, room.Name, room.UniqueId, level_name, ";".join(touching_room_numbers)])
+
+print(f"CSV file has been saved to {csv_file_path}")

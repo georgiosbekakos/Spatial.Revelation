@@ -1,0 +1,48 @@
+import csv
+from Autodesk.Revit.DB import FilteredElementCollector, BuiltInCategory, Outline, BoundingBoxIntersectsFilter
+
+# get the current Revit application and document
+doc = __revit__.ActiveUIDocument.Document
+
+# collect all the wall elements in the document
+collector = FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType()
+
+# replace with the actual path to your desktop
+desktop_path = 'C:/Users/Georgios Bekakos/Desktop/'
+filename = 'intersecting_walls.csv'
+full_path = desktop_path + filename
+
+# create a dictionary to store intersection data
+intersection_data = {}
+
+# iterate through each wall element
+for wall1 in collector:
+    # create a filter based on the bounding box of wall1
+    bbox = wall1.get_BoundingBox(None)
+    outline = Outline(bbox.Min, bbox.Max)
+    bbFilter = BoundingBoxIntersectsFilter(outline)
+
+    # collect all wall elements that intersect with wall1
+    intersecting_walls = FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType().WherePasses(bbFilter)
+
+    # iterate through each intersecting wall
+    for wall2 in intersecting_walls:
+        # avoid self-intersection
+        if wall1.Id.IntegerValue != wall2.Id.IntegerValue:
+            # if wall1 is not in intersection_data, add it
+            if wall1.Id not in intersection_data:
+                intersection_data[wall1.Id] = []
+            # add wall2 to the list of walls intersecting with wall1
+            intersection_data[wall1.Id].append(wall2.Id)
+
+# now, intersection_data is a dictionary where keys are wall ids and values are lists of ids of walls intersecting with the key wall
+
+# write the data to the CSV file
+with open(full_path, 'w', newline='') as f:
+    writer = csv.writer(f)
+    # write the headers
+    writer.writerow(['WallId', 'Intersection1', 'Intersection2', 'Intersection3', 'Intersection4', 'Intersection5', 'Intersection6', 'Intersection7', 'Intersection8', 'Intersection9', 'Intersection10'])
+    # iterate through each wall in intersection_data
+    for wall_id, intersections in intersection_data.items():
+        # write a row for the wall
+        writer.writerow([wall_id] + intersections)

@@ -1,0 +1,88 @@
+import clr
+import csv
+import os
+
+clr.AddReference('RevitAPI')
+clr.AddReference('RevitAPIUI')
+from Autodesk.Revit.DB import *
+from Autodesk.Revit.UI import *
+
+uidoc = __revit__.ActiveUIDocument
+doc = __revit__.ActiveUIDocument.Document
+
+# The directory to save the .csv files
+directory = r"C:\Users\Georgios Bekakos\Desktop"
+
+# Floor plans to include
+floor_plans_to_include = ["LEVEL 0" + str(i) for i in range(1, 7)] + ["ROOF", "PENTHOUSE"]
+
+# Function to calculate the area and centroid of a polygon
+def calculate_polygon_properties(polygon):
+    n = len(polygon)
+    area = 0
+    centroid_x = 0
+    centroid_y = 0
+    for i in range(n):
+        j = (i + 1) % n
+        xi, yi = polygon[i]
+        xj, yj = polygon[j]
+        factor = xi * yj - xj * yi
+        area += factor
+        centroid_x += (xi + xj) * factor
+        centroid_y += (yi + yj) * factor
+    area /= 2.0
+    centroid_x /= (6.0 * area)
+    centroid_y /= (6.0 * area)
+    return abs(area), (centroid_x, centroid_y)
+
+# Function to extract the room's Identity Data Number and Name
+def get_room_data_info(room):
+    number_param = room.get_Parameter(BuiltInParameter.ROOM_NUMBER)
+    name_param = room.get_Parameter(BuiltInParameter.ROOM_NAME)
+    
+    number = number_param.AsString() if number_param else "N/A"
+    name = name_param.AsString() if name_param else "N/A"
+    
+    return number, name
+
+# Collect all floor plans in the model
+collector = FilteredElementCollector(doc).OfClass(ViewPlan).ToElements()
+
+for view in collector:
+    if view.ViewType == ViewType.FloorPlan and view.Name in floor_plans_to_include:
+        room_filter = ElementCategoryFilter(BuiltInCategory.OST_Rooms)
+        room_collector = FilteredElementCollector(doc, view.Id).WherePasses(room_filter).ToElements()
+        
+        room_data = []
+        room_index = 1  # Initialize index
+        
+        for room in room_collector:
+            if room.Area > 0:  # Ignore rooms without an area
+                room_number, room_name = get_room_data_info(room)
+                
+                opt = SpatialElementBoundaryOptions()
+                boundary = room.GetBoundarySegments(opt)
+                
+                room_polygons = []
+                touching_wall_unique_ids = []
+                for loop in boundary:
+                    loop_polygon = [(line.GetCurve().GetEndPoint(0).X, line.GetCurve().GetEndPoint(0).Y) for line in loop]
+                    room_polygons.append(loop_polygon)
+                    for line in loop:
+                        element = doc.GetElement(line.ElementId)
+                        if element and element.Category.Name == "Walls":
+                            touching_wall_unique_ids.append(element.UniqueId)
+                
+                areas_centroids = [calculate_polygon_properties(polygon) for polygon in room_polygons]
+                
+                room_data.append((room_index, room.UniqueId, room_polygons, touching_wall_unique_ids, areas_centroids, room_number, room_name))
+                
+                room_index += 1
+
+        with open(os.path.join(directory, f'{view.Name}_floor_plan.csv'), 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(["Index", "Room Unique ID", "Polygon Points", "Touching Wall Unique IDs", "Area", "Centroid", "Room Number", "Room Name"])
+            for room_index, room_unique_id, room_polygons, wall_unique_ids, areas_centroids, room_number, room_name in room_data:
+                for i, polygon in enumerate(room_polygons):
+                    area, centroid = areas_centroids[i]
+                    writer.writerow([room_index, room_unique_id, str(polygon), str(wall_unique_ids), area, centroid, room_number, room_name])

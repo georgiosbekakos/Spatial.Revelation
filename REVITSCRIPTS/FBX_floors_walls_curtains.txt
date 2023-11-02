@@ -1,0 +1,48 @@
+import clr
+import System
+from System.Collections.Generic import List
+
+# Import Revit API
+clr.AddReference('RevitAPI')
+from Autodesk.Revit.DB import *
+
+# Import Revit API UI
+clr.AddReference('RevitAPIUI')
+from Autodesk.Revit.UI import *
+
+# Get the current document and UI document
+doc = __revit__.ActiveUIDocument.Document
+uidoc = __revit__.ActiveUIDocument
+
+# Categories to isolate
+categories_to_isolate = [
+    BuiltInCategory.OST_Rooms,
+    BuiltInCategory.OST_Walls,
+    BuiltInCategory.OST_Doors,
+    BuiltInCategory.OST_CurtainWallPanels,
+    BuiltInCategory.OST_CurtainWallMullions,
+    BuiltInCategory.OST_Curtain_Systems,
+    BuiltInCategory.OST_Roofs,
+    BuiltInCategory.OST_Stairs,
+    BuiltInCategory.OST_Floors  # Included Roofs
+    # Add any other categories here
+]
+
+# Collect elements by category
+collector = FilteredElementCollector(doc)
+elements_to_isolate = collector.WherePasses(ElementMulticategoryFilter(List[BuiltInCategory](categories_to_isolate)))
+
+# Get element ids to isolate
+element_ids_to_isolate = List[ElementId]([e.Id for e in elements_to_isolate])
+
+# Start a new transaction
+with Transaction(doc, 'Isolate Elements') as t:
+    t.Start()
+
+    try:
+        # Isolate elements in the view
+        uidoc.ActiveView.IsolateElementsTemporary(element_ids_to_isolate)
+        t.Commit()
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        t.RollBack()

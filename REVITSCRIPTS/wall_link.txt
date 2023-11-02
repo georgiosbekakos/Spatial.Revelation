@@ -1,0 +1,34 @@
+# Importing the required libraries and modules
+import csv
+import clr
+clr.AddReference('RevitAPI')
+from Autodesk.Revit.DB import FilteredElementCollector, BuiltInCategory, ElementId
+
+# Getting the current document from the Revit application; 
+# this assumes that `doc` is defined by the environment, otherwise you would need to get it from the UIApplication object
+# doc = __revit__.ActiveUIDocument.Document
+
+# Initialize an empty list to store wall data
+wall_data = []
+
+# Add the header row to the list
+wall_data.append(['Unique ID', 'Element ID'])
+
+# Create a FilteredElementCollector to collect all the wall elements in the current document
+collector = FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType()
+
+# Iterate through the collected walls and populate the wall_data list
+for wall in collector:
+    unique_id = wall.UniqueId
+    element_id = wall.Id
+    wall_data.append([unique_id, element_id])
+
+# Define the path to save the CSV file
+csv_file_path = "C:\\Users\\Georgios Bekakos\\Desktop\\Wall_Data.csv"
+
+# Write the wall_data list to a CSV file
+with open(csv_file_path, 'w', newline='') as csvfile:
+    csvwriter = csv.writer(csvfile)
+    csvwriter.writerows(wall_data)
+
+print(f"CSV file has been created at {csv_file_path}")

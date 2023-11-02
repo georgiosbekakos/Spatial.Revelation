@@ -1,0 +1,65 @@
+import clr
+import csv
+import os
+
+clr.AddReference('RevitAPI')
+clr.AddReference('RevitAPIUI')
+from Autodesk.Revit.DB import *
+
+doc = __revit__.ActiveUIDocument.Document
+directory = r"C:\Users\Georgios Bekakos\Desktop"
+
+csv_file_path = os.path.join(directory, 'all_walls_info.csv')
+
+# Collect all walls in the document
+all_walls = FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType().ToElements()
+
+with open(csv_file_path, 'w', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerow(["Wall ID", "Wall Type", "Base Constraint", "Top Constraint", "Number of Doors", "Types of Doors", "Number of Windows", "Types of Windows", "Wall Footprint"])
+    
+    for wall in all_walls:
+        wall_id_string = f"<Autodesk.Revit.DB.ElementId object at {hex(id(wall.Id))} [{wall.Id.IntegerValue}]>"
+        
+        # Get wall type
+        wall_type = wall.WallType.Name if wall.WallType else "Unknown"
+        
+        # Get base and top constraints
+        base_constraint = wall.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT).AsValueString() if wall.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT) else "Unconnected"
+        top_constraint = wall.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE).AsValueString() if wall.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE) else "Unconnected"
+        
+        # Get doors and windows hosted by the wall
+        door_collector = FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Doors).WhereElementIsNotElementType().ToElements()
+        window_collector = FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Windows).WhereElementIsNotElementType().ToElements()
+        
+        doors_in_wall = [door for door in door_collector if door.Host and door.Host.Id == wall.Id]
+        windows_in_wall = [window for window in window_collector if window.Host and window.Host.Id == wall.Id]
+        
+        door_types = [door.Symbol.Family.Name for door in doors_in_wall if door.Symbol and door.Symbol.Family]
+        window_types = [window.Symbol.Family.Name for window in windows_in_wall if window.Symbol and window.Symbol.Family]
+        
+        # Get wall's footprint (boundary polygon)
+        wall_footprint = []
+        options = Options()
+        geom_element = wall.get_Geometry(options)
+        for geom_obj in geom_element:
+            if isinstance(geom_obj, Solid):
+                for face in geom_obj.Faces:
+                    for edgeArray in face.EdgeLoops:
+                        loop_points = []
+                        for edge in edgeArray:
+                            curve = edge.AsCurve()
+                            loop_points.append((curve.GetEndPoint(0).X, curve.GetEndPoint(0).Y))
+                        wall_footprint.append(loop_points)
+        
+        writer.writerow([
+            wall_id_string,
+            wall_type,
+            base_constraint,
+            top_constraint,
+            len(doors_in_wall),
+            ", ".join(door_types),
+            len(windows_in_wall),
+            ", ".join(window_types),
+            str(wall_footprint)
+        ])
